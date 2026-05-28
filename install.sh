@@ -2,34 +2,35 @@
 set -euo pipefail
 
 # --- hyrax-workshop-skill installer ---
-# Copies the hyrax-dataset-class skill into your project's .claude/skills/ directory.
-# Run this from the ROOT of your project (where your .claude/ directory lives).
+# Copies the hyrax-dataset-class skill into your user-global Claude Code skills
+# directory (~/.claude/skills/), so it is available in every Claude Code session
+# regardless of which project (or notebook) you are working in.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_SRC="$SCRIPT_DIR/.claude/skills/hyrax-dataset-class"
-SKILL_DEST="./.claude/skills/hyrax-dataset-class"
+SKILL_DEST="$HOME/.claude/skills/hyrax-dataset-class"
 
-# macOS only
-if [[ "$(uname)" != "Darwin" ]]; then
-  echo "ERROR: This installer only supports macOS with a default Claude Code setup."
-  echo "Please follow the manual instructions in README.md."
+# macOS and Linux share the same ~/.claude location.
+case "$(uname)" in
+  Darwin|Linux) ;;
+  *)
+    echo "ERROR: This installer supports macOS and Linux."
+    echo "Please follow the manual instructions in README.md."
+    exit 1
+    ;;
+esac
+
+if [[ ! -d "$SKILL_SRC" ]]; then
+  echo "ERROR: Could not find the skill at $SKILL_SRC."
+  echo "Run this script from the cloned hyrax-workshop-claude-skill repo."
   exit 1
 fi
 
-# Must be run from inside a project with a .claude directory
-if [[ ! -d "./.claude" ]]; then
-  echo "ERROR: No .claude/ directory found in the current directory."
-  echo "Make sure you are running this script from the root of your project,"
-  echo "not from inside the hyrax-workshop-skill folder."
-  echo ""
-  echo "See README.md for manual installation instructions."
-  exit 1
-fi
-
-mkdir -p "./.claude/skills"
+mkdir -p "$HOME/.claude/skills"
+rm -rf "$SKILL_DEST"
 cp -r "$SKILL_SRC" "$SKILL_DEST"
 
 echo "✓ Skill installed to $SKILL_DEST"
 echo ""
-echo "To use it, open Claude Code in your project and say:"
+echo "It is now available in every Claude Code session. To use it, say:"
 echo "  Use \$hyrax-dataset-class to create a dataset class for my data."

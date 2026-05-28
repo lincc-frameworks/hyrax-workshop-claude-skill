@@ -1,51 +1,59 @@
 # Config Rules
 
-Access Hyrax-owned config keys with `[]`, not `.get()`.
+Per-dataset settings are supplied inline in the `data_request` entry under the `dataset_config` key. Your dataset class receives that dict as the `config` argument to `__init__`.
+
+Read settings with `config.get(name, default)` so the class works whether or not the caller overrides them:
 
 ```python
-settings = config["dataset"]["YourDatasetClass"]
-value = settings["value_with_default"]
+def __init__(self, config, data_location=None):
+    n_objects = config.get("n_objects", 64)
+    self.open_kwargs = config.get("open_kwargs", {})
+    # ... dataset-specific setup ...
+    super().__init__(config)
 ```
 
-Add every config key your dataset reads to your own project's TOML config file (passed to Hyrax at runtime). Use the `[dataset.<ClassName>]` table structure. Missing defaults should fail loudly with `KeyError` during development.
-
-Use pass-through dictionaries for optional keyword arguments owned by an underlying library. Add a default empty table for the pass-through dictionary, then forward it with `**kwargs`.
-
-```toml
-[dataset.YourDatasetClass]
-required_option = false
-
-[dataset.YourDatasetClass.open_kwargs]
-# library_option = "example"
-```
+Supply the matching values when wiring the dataset into Hyrax:
 
 ```python
-settings = config["dataset"]["YourDatasetClass"]
-open_kwargs = settings["open_kwargs"]
+h.set_config(
+    "data_request",
+    {
+        "train": {
+            "data": {
+                "dataset_class": "YourDataset",
+                "data_location": "/path/to/data",
+                "dataset_config": {"n_objects": 32, "open_kwargs": {}},
+                "fields": ["flux", "object_id"],
+                "primary_id_field": "object_id",
+            }
+        }
+    },
+)
+```
+
+Use pass-through dictionaries for optional keyword arguments owned by an underlying library. Keep them in a single `open_kwargs`-style dict, default it to `{}`, and forward with `**kwargs`:
+
+```python
+open_kwargs = config.get("open_kwargs", {})
 resource = library.open(data_location, **open_kwargs)
 ```
 
-Avoid defensive branches around config keys that Hyrax owns. Use clear branches only for meaningful user choices, such as a `false` default meaning "disabled" or "infer automatically."
+Choose defaults that make the common case work with no configuration. Use an explicit sentinel default (e.g. `None`/`False` meaning "disabled" or "infer automatically") only for meaningful user choices.
 
-Do not redefine optional keyword argument keys owned by an underlying library in Hyrax config. Keep those inside the pass-through dictionary unless Hyrax itself needs to interpret the option.
+Do not redefine optional keyword argument keys owned by an underlying library as top-level settings. Keep those inside the pass-through dict unless Hyrax itself needs to interpret the option.
 
-## Complete TOML Example
+## Productionizing: package `default_config.toml` (optional)
 
-This is a real example from `hyrax_default_config.toml`. Use this as a template for new dataset defaults:
+When the class moves into a standalone package, the only required change is referencing it by its fully-qualified import path in `dataset_class`; settings can still be passed inline via `dataset_config`.
+
+A package may also ship defaults in a `default_config.toml`, which Hyrax merges through its layered configuration system. Namespace the table by your package and class name:
 
 ```toml
-[dataset.LanceDBDataset]
-# Table name to open inside the LanceDB database.
-table_name = false
+[my_package.YourDataset]
+n_objects = 64
 
-# Extra keyword arguments passed directly to lancedb.connect.
-[dataset.LanceDBDataset.connect_kwargs]
-
-# Extra keyword arguments passed directly to db.open_table.
-[dataset.LanceDBDataset.open_table_kwargs]
+[my_package.YourDataset.open_kwargs]
+# library_option = "example"
 ```
 
-Key formatting rules:
-- `false` is used as a sentinel meaning "not set" (TOML has no null).
-- Empty sub-tables (like `connect_kwargs` above) define pass-through dictionaries that start as `{}`.
-- Comments above keys explain the option. Commented-out key examples show valid values.
+See the [external package setup guide](https://hyrax.readthedocs.io/en/stable/external_library_package.html) for the full package layout and the layered configuration system.

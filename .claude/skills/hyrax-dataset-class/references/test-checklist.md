@@ -1,12 +1,14 @@
 # Test Checklist
 
+Notebook-first datasets are usually validated by running `h.prepare()` and inspecting a sample in the notebook. Add formal tests when the user moves the class into a package or asks for them.
+
 Cover the smallest representative sample:
 
 - Constructor loads or connects using temporary sample data.
 - `len(dataset)` matches the number of objects.
 - `get_<primary_id_field>(idx)` returns stable unique IDs.
 - Each requested getter returns the expected value, shape, and type.
-- Dataset-specific config defaults are read with bracket access.
+- Dataset-specific settings are read from the inline `dataset_config` dict with `config.get(...)`.
 - Pass-through kwargs reach the underlying library when supported.
 - Missing `data_location` raises only when the dataset cannot sensibly operate without it.
 
@@ -19,7 +21,7 @@ Use this pattern to create sample data and a dataset instance for testing:
 ```python
 import pytest
 
-from hyrax.datasets.your_dataset_module import YourDataset
+from my_package.datasets.your_dataset_module import YourDataset
 
 
 @pytest.fixture
@@ -33,15 +35,8 @@ def sample_data(tmp_path):
 
 def test_dataset_length_and_getters(sample_data):
     dataset = YourDataset(
-        config={
-            "dataset": {
-                "YourDataset": {
-                    # Mirror the keys from hyrax_default_config.toml
-                    "some_option": "value",
-                    "read_kwargs": {},
-                }
-            }
-        },
+        # config is the inline dataset_config dict the dataset reads with config.get(...)
+        config={"some_option": "value", "open_kwargs": {}},
         data_location=sample_data,
     )
 
@@ -50,6 +45,6 @@ def test_dataset_length_and_getters(sample_data):
     assert dataset.get_flux(1) == pytest.approx(20.5)
 ```
 
-Key points: pass the config dict inline with the same structure as `hyrax_default_config.toml`. Use `pytest.approx` for floats. Test every getter the dataset exposes.
+Key points: pass `config` as the inline `dataset_config` dict the dataset reads with `config.get(...)`. Import the class from the user's own package module. Use `pytest.approx` for floats. Test every getter the dataset exposes.
 
 Run the targeted dataset tests first. Run broader tests only when the change touches shared dataset loading, config parsing, data request handling, or collation behavior.

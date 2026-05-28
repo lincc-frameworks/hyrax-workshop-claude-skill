@@ -1,6 +1,6 @@
 ---
 name: hyrax-dataset-class
-description: Create or update Hyrax dataset classes. Use when the user asks to "create a dataset class", "add a HyraxDataset", "load my data through Hyrax", "add dataset getter methods", "wire dataset defaults", "add dataset tests", or "make a notebook example" for a Hyrax dataset. Also use when a task involves data_request fields, primary_id_field, or dataset config for use with Hyrax from an external package.
+description: Create or update Hyrax dataset classes. Use when the user asks to "create a dataset class", "add a HyraxDataset", "load my data through Hyrax", "add dataset getter methods", "wire dataset defaults", "add dataset tests", or "make a notebook example" for a Hyrax dataset. Also use when a task involves data_request fields, primary_id_field, or dataset config for use with Hyrax in a notebook or external package.
 metadata:
   version: "0.1.0"
 ---
@@ -13,7 +13,7 @@ Read the [Hyrax Dataset Class Reference](https://hyrax.readthedocs.io/en/stable/
 
 Read the [external dataset class notebook](https://hyrax.readthedocs.io/en/stable/pre_executed/external_dataset_class.html) for the recommended notebook-first workflow and the `data_request` config structure.
 
-Config defaults for your dataset go in your own project's TOML config file (passed to Hyrax at runtime). Match the `[dataset.<ClassName>]` table structure. See [references/config-rules.md](references/config-rules.md) for details.
+Default to the notebook-first workflow: define the dataset class directly in the user's notebook, reference it by its bare class name, and supply per-dataset settings inline through the `dataset_config` dict in the `data_request`. Moving the class into a standalone package is an optional later step. See [references/config-rules.md](references/config-rules.md) for details.
 
 Use existing dataset modules, tests, and notebook examples only as local patterns. Do not blindly copy an implementation; adapt the shape to the user's data format and requested fields.
 
@@ -23,49 +23,76 @@ Read [references/test-checklist.md](references/test-checklist.md) before writing
 
 ## Canonical Minimal Example
 
-Use this as the starting shape for any new dataset class. Adapt it to the user's data format.
+Use this as the starting shape for any new dataset class. Define it directly in the user's notebook and adapt it to their data format.
 
 ```python
+import numpy as np
 from hyrax.datasets import HyraxDataset
 
 
-class ExampleTabularDataset(HyraxDataset):
-    """Hyrax dataset wrapping a tabular data source."""
+class ExampleSurveyDataset(HyraxDataset):
+    """Hyrax dataset wrapping a survey data source."""
 
-    def __init__(self, config: dict, data_location=None):
-        if data_location is None:
-            raise ValueError("A `data_location` must be provided.")
+    def __init__(self, config, data_location=None):
+        # Per-dataset settings arrive inline via the data_request "dataset_config" dict.
+        n_objects = config.get("n_objects", 64)
 
-        self.data_location = str(data_location)
-        settings = config["dataset"]["ExampleTabularDataset"]
-        self.read_kwargs = settings["read_kwargs"]
+        # Use data_location to find real files and load small catalogs or
+        # file-path lists here. This example generates fake data instead.
+        rng = np.random.default_rng(7)
+        self.images = rng.normal(size=(n_objects, 3, 32, 32)).astype(np.float32)
+        self.labels = rng.integers(0, 5, size=n_objects, dtype=np.int64)
 
-        self.table = self._load_table()
+        # Always call super().__init__ last, after your attributes are set.
         super().__init__(config)
 
-    def _load_table(self):
-        import some_library
-        return some_library.open(self.data_location, **self.read_kwargs)
+    def __len__(self):
+        return len(self.images)
+
+    def get_image(self, idx):
+        return self.images[idx]
+
+    def get_label(self, idx):
+        return int(self.labels[idx])
 
     def get_object_id(self, idx):
-        return str(self.table[idx]["object_id"])
+        return f"obj-{idx:05d}"
+```
 
-    def get_flux(self, idx):
-        return float(self.table[idx]["flux"])
+Wire it into Hyrax in the notebook by referencing the class by its bare name and passing settings through `dataset_config`:
 
-    def __len__(self):
-        return len(self.table)
+```python
+from hyrax import Hyrax
+
+h = Hyrax()
+h.set_config(
+    "data_request",
+    {
+        "train": {
+            "data": {  # friendly name — any string
+                "dataset_class": "ExampleSurveyDataset",
+                "data_location": "/path/to/data",
+                "dataset_config": {"n_objects": 32},
+                "fields": ["image", "label", "object_id"],
+                "primary_id_field": "object_id",
+            }
+        }
+    },
+)
+
+prepared = h.prepare()
+sample = prepared["train"][0]["data"]
 ```
 
 Key points this example demonstrates:
 - Import from `hyrax.datasets`, not `hyrax.datasets.dataset_registry`.
 - Class name ends in `Dataset`.
 - One-line class docstring.
-- Config access with `[]`, never `.get()`.
-- Pass-through kwargs via a config sub-table.
-- `super().__init__(config)` should be called.
+- Per-dataset settings come from the inline `dataset_config` dict, read with `config.get(name, default)`.
+- `super().__init__(config)` is called last, after attributes are set.
 - Optional dependency imported inside the method that uses it.
-- Explicit getter methods for known fields.
+- Explicit getter methods for known fields, including `get_object_id`.
+- In the notebook the class is referenced by its bare name in `data_request`.
 
 ## User Discovery
 
@@ -76,27 +103,38 @@ Ask only material questions. Get enough information to define the golden path:
 - Dataset length source: catalog rows, files, table rows, remote records, or configured limit.
 - Requested Hyrax fields: `fields` values and the `primary_id_field` the data request will use.
 - Field shapes and types: scalar, array, image, time series, nested table, label, mask, metadata.
-- Required library pass-through kwargs and which options need Hyrax defaults.
+- Required library pass-through kwargs and which settings should be exposed in `dataset_config`.
 
 If the user is still exploring, stay at their level of generality: sketch the class skeleton, identify missing data details, and implement only what can be grounded in their example or specification.
 
 ## Implementation Workflow
 
-1. Choose a class name ending in `Dataset` and place it in an appropriate module in the user's own project (e.g. `src/my_package/datasets/my_dataset.py`).
-2. Import `HyraxDataset` from `hyrax.datasets` (the canonical import path — requires `hyrax` to be installed as a dependency). When wiring into Hyrax config, reference the class by its fully-qualified import path, e.g. `"my_package.datasets.my_dataset.MyDataset"`.
-3. Implement `__init__(self, config: dict, data_location=None)`.
+1. Choose a class name ending in `Dataset` and define it directly in the user's notebook.
+2. Import `HyraxDataset` from `hyrax.datasets` (the canonical import path — requires `hyrax` to be installed as a dependency). In the notebook, reference the class by its bare name in `data_request[...]["dataset_class"]`.
+3. Implement `__init__(self, config, data_location=None)`. Read per-dataset settings from the inline `dataset_config` dict via `config.get(name, default)`.
 4. Store `data_location` when relevant and do one-time setup there: locate files, load small catalogs, open handles, or store pass-through kwargs.
-5. Call `super().__init__(config)` after dataset-specific setup unless the surrounding local pattern requires otherwise.
+5. Call `super().__init__(config)` last, after dataset-specific setup.
 6. Implement `__len__(self)`.
 7. Implement `get_<field_name>(self, idx)` for every field Hyrax may request, including `get_<primary_id_field>`.
 8. Return stable, unique IDs from the primary ID getter. Prefer an existing unique object ID; otherwise use a stable index or deterministic hash from identifying values. Unique IDs must be strings.
 9. Add a one-line class docstring describing what the dataset wraps.
-10. Add focused tests under the user's own project test directory that create minimal sample data and assert length, primary IDs, requested fields, and config/pass-through behavior.
-11. Always add a runnable notebook example except if directed otherwise specifically.
+10. Wire the class into Hyrax with `h.set_config("data_request", {...})`, passing settings through `dataset_config`, then call `h.prepare()` and inspect a sample (`prepared[step][friendly_name]`).
+11. For variable-length fields (e.g. light curves), add a `collate_<field>(self, samples)` method that pads sequences to a common length and returns a mask of real vs. padded entries.
 
 Keep heavy per-object work inside getters. Keep constructor work limited to setup that should happen once.
 
-Do not implement `__getitem__` or `collate` unless the user specifically asks for custom batching behavior. The base class and Hyrax machinery handle these.
+Do not implement `__getitem__` or a whole-dataset `collate` unless the user specifically asks for custom batching behavior. The base class and Hyrax machinery handle these; prefer field-level `collate_<field>` methods (step 11) for variable-length fields.
+
+## Productionizing (Optional)
+
+Once the class works in the notebook, the user can move it into a standalone Python package for reuse:
+
+1. Place the class in a module under the package (e.g. `src/my_package/datasets/my_dataset.py`).
+2. Change `dataset_class` in the `data_request` to the fully-qualified import path, e.g. `"my_package.datasets.my_dataset.MyDataset"`. Nothing else about the `data_request` needs to change.
+3. Optionally ship defaults in the package's `default_config.toml` (see [references/config-rules.md](references/config-rules.md)).
+4. Add focused tests under the package test directory (see [references/test-checklist.md](references/test-checklist.md)).
+
+See the [external package setup guide](https://hyrax.readthedocs.io/en/stable/external_library_package.html). Only introduce this path when the user asks to productionize or share their dataset class.
 
 ## Code Style
 
