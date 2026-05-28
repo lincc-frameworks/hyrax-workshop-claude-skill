@@ -2,15 +2,15 @@
 set -euo pipefail
 
 # --- hyrax-workshop-skill installer ---
-# Copies the hyrax-dataset-class skill into your user-global Claude Code skills
-# directory (~/.claude/skills/), so it is available in every Claude Code session
-# regardless of which project (or notebook) you are working in.
+# Copies the hyrax-dataset-class skill into your user-global skills directories
+# for Claude Code (~/.claude/skills/) and Codex CLI (~/.codex/skills/), so it
+# is available in every session regardless of which project (or notebook) you
+# are working in.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_SRC="$SCRIPT_DIR/.claude/skills/hyrax-dataset-class"
-SKILL_DEST="$HOME/.claude/skills/hyrax-dataset-class"
 
-# macOS and Linux share the same ~/.claude location.
+# macOS and Linux share the same home-directory layout for both tools.
 case "$(uname)" in
   Darwin|Linux) ;;
   *)
@@ -26,11 +26,19 @@ if [[ ! -d "$SKILL_SRC" ]]; then
   exit 1
 fi
 
+# Claude Code
 mkdir -p "$HOME/.claude/skills"
-rm -rf "$SKILL_DEST"
-cp -r "$SKILL_SRC" "$SKILL_DEST"
+rm -rf "$HOME/.claude/skills/hyrax-dataset-class"
+cp -r "$SKILL_SRC" "$HOME/.claude/skills/hyrax-dataset-class"
+echo "✓ Installed for Claude Code → $HOME/.claude/skills/hyrax-dataset-class"
 
-echo "✓ Skill installed to $SKILL_DEST"
+# Codex CLI
+mkdir -p "$HOME/.codex/skills"
+rm -rf "$HOME/.codex/skills/hyrax-dataset-class"
+cp -r "$SKILL_SRC" "$HOME/.codex/skills/hyrax-dataset-class"
+echo "✓ Installed for Codex CLI  → $HOME/.codex/skills/hyrax-dataset-class"
+
 echo ""
-echo "It is now available in every Claude Code session. To use it, say:"
+echo "The skill is now available in every Claude Code and Codex CLI session."
+echo "To use it, say:"
 echo "  Use \$hyrax-dataset-class to create a dataset class for my data."
